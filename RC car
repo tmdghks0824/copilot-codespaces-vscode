@@ -1,0 +1,60 @@
+import serial
+import time
+import torch
+from yolov5 import YOLOv5
+
+# Serial communication setup with Arduino
+arduino = serial.Serial('/dev/ttyUSB0', 9600)
+time.sleep(2)
+
+# Load YOLOv5 model
+model_path = 'yolov5s.pt'  # Pre-trained YOLOv5 model
+device = 'cuda' if torch.cuda.is_available() else 'cpu'  # Check if GPU is available
+model = YOLOv5(model_path, device)
+
+def send_command(command):
+    arduino.write(command.encode())
+    print(f"Sent command '{command}' to Arduino")
+
+def detect_objects(frame):
+    results = model.predict(frame)
+    labels = results.labels
+    detected_objects = [model.names[label] for label in labels]
+
+    # Check if lane or obstacle is detected
+    lane_detected = 'lane' in detected_objects
+    obstacle_detected = any(obj for obj in detected_objects if obj not in ['lane'])
+
+    return lane_detected, obstacle_detected
+
+def main():
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Unable to open camera.")
+        return
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        lane_detected, obstacle_detected = detect_objects(frame)
+       
+        if obstacle_detected:
+            send_command('S')  # Stop when obstacle is detected
+        elif lane_detected:
+            send_command('F')  # Move forward while detecting lane
+        else:
+            send_command('L')  # Turn left when lane is not detected
+
+        # Display the result on screen
+        cv2.imshow('YOLOv5 Detection', frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+    arduino.close()
+
+if __name__ == "__main__":
+    main()
